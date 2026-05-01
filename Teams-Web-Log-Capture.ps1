@@ -8,19 +8,74 @@ function Write-StatusLine([string]$Message) {
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $Message"
 }
 
-function Get-EdgePath {
-    $candidates = @(
-        "$env:ProgramFiles(x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-        "$env:ProgramFiles\\Microsoft\\Edge\\Application\\msedge.exe"
-    )
-    foreach ($path in $candidates) {
-        if (Test-Path $path) { return $path }
-    }
-    throw "Microsoft Edge niet gevonden op verwachte paden."
-}
-
 function Expand-EnvPath([string]$PathText) {
     return [Environment]::ExpandEnvironmentVariables($PathText)
+}
+
+function Get-EdgePath {
+    $checked = New-Object System.Collections.Generic.List[string]
+
+    # 1) App Paths registry (stable edge)
+    $appPathKeys = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe'
+    )
+    foreach ($key in $appPathKeys) {
+        $checked.Add("Registry: $key")
+        try {
+            $p = (Get-ItemProperty -Path $key -ErrorAction Stop).'(default)'
+            if (-not $p) { $p = (Get-ItemProperty -Path $key -ErrorAction Stop).Path }
+            if ($p -and (Test-Path $p)) { return $p }
+        } catch {
+            # continue
+        }
+    }
+
+    # 2) PATH
+    $checked.Add('PATH: msedge.exe')
+    try {
+        $cmd = Get-Command msedge.exe -ErrorAction Stop
+        if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) { return $cmd.Source }
+    } catch {
+        # continue
+    }
+
+    # 3) Common stable install paths
+    $stablePaths = @(
+        (Join-Path $Env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
+        (Join-Path ${Env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
+        (Join-Path $Env:LocalAppData 'Microsoft\Edge\Application\msedge.exe')
+    )
+    foreach ($p in $stablePaths) {
+        if ($p) { $checked.Add("Bestand: $p") }
+        if ($p -and (Test-Path $p)) { return $p }
+    }
+
+    # 4) Optional fallback channels (Beta/Dev/Canary)
+    $channelPaths = @(
+        (Join-Path $Env:ProgramFiles 'Microsoft\Edge Beta\Application\msedge.exe'),
+        (Join-Path ${Env:ProgramFiles(x86)} 'Microsoft\Edge Beta\Application\msedge.exe'),
+        (Join-Path $Env:LocalAppData 'Microsoft\Edge Beta\Application\msedge.exe'),
+        (Join-Path $Env:ProgramFiles 'Microsoft\Edge Dev\Application\msedge.exe'),
+        (Join-Path ${Env:ProgramFiles(x86)} 'Microsoft\Edge Dev\Application\msedge.exe'),
+        (Join-Path $Env:LocalAppData 'Microsoft\Edge Dev\Application\msedge.exe'),
+        (Join-Path $Env:LocalAppData 'Microsoft\Edge SxS\Application\msedge.exe')
+    )
+    foreach ($p in $channelPaths) {
+        if ($p) { $checked.Add("Fallback: $p") }
+        if ($p -and (Test-Path $p)) { return $p }
+    }
+
+    $detail = ($checked | ForEach-Object { " - $_" }) -join [Environment]::NewLine
+    throw @"
+Microsoft Edge kon niet worden gevonden.
+
+Gecontroleerde locaties:
+$detail
+
+Controleer of Microsoft Edge is geïnstalleerd (bij voorkeur Stable).
+Start Edge eventueel eenmalig handmatig en probeer daarna opnieuw.
+"@
 }
 
 function New-CdpMessage([int]$Id, [string]$Method, [hashtable]$Params = @{}) {
@@ -62,6 +117,17 @@ function Add-CaptureEvent($obj) {
     $script:Events.Add($obj)
 }
 
+function Write-StatusBlock($state) {
+    Write-StatusLine "Recorder draait..."
+    Write-StatusLine "Roger host gezien: $(if($state.RogerHostGezien){'Ja'}else{'Nee'})"
+    Write-StatusLine "SignalR host gezien: $(if($state.SignalRHostGezien){'Ja'}else{'Nee'})"
+    Write-StatusLine "LoginStatus gezien: $(if($state.LoginStatusGezien){'Ja'}else{'Nee'})"
+    Write-StatusLine "presenceHub/negotiate gezien: $(if($state.PresenceNegotiateGezien){'Ja'}else{'Nee'})"
+    Write-StatusLine "WebSocket gezien: $(if($state.WebSocketGezien){'Ja'}else{'Nee'})"
+    Write-StatusLine "Events opgeslagen: $($state.TotaalEvents)"
+    Write-StatusLine "[1] Opslaan  [2] Status  [3] Annuleren"
+}
+
 $config = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
 $outputRoot = Expand-EnvPath $config.outputRoot
 $sessionStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -86,6 +152,7 @@ Start-Process -FilePath $edgePath -ArgumentList $edgeArgs | Out-Null
 Write-StatusLine "Microsoft Teams wordt geopend"
 Write-StatusLine "Recorder draait vanaf browserstart"
 Write-StatusLine "Log in bij Teams en open Roger365"
+Write-StatusLine "Sneltoetsen: [1] Opslaan  [2] Status  [3] Annuleren"
 
 Start-Sleep -Seconds 2
 $versionInfo = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/version"
@@ -102,7 +169,6 @@ Send-CdpCommand $socket $id 'Target.setAutoAttach' @{ autoAttach = $true; waitFo
 $script:Events = New-Object System.Collections.Generic.List[object]
 $targets = @{}
 $hostsByTarget = @{}
-$loaderToTarget = @{}
 $state = [ordered]@{
     RogerHostGezien = $false
     SignalRHostGezien = $false
@@ -117,7 +183,6 @@ $state = [ordered]@{
     SignalRHostsGezien = New-Object System.Collections.Generic.HashSet[string]
 }
 
-$commandBuffer = ""
 $nextStatus = (Get-Date).AddSeconds([int]$config.statusIntervalSeconds)
 $deadline = (Get-Date).AddMinutes([int]$config.sessionTimeoutMinutes)
 $running = $true
@@ -125,35 +190,23 @@ $running = $true
 while ($running) {
     while ([Console]::KeyAvailable) {
         $k = [Console]::ReadKey($true)
-        if ($k.Key -eq 'Enter') {
-            $cmd = $commandBuffer.Trim().ToLowerInvariant()
-            $commandBuffer = ""
-            if ($cmd) { Write-Host ""; Write-StatusLine "Commando ontvangen: $cmd" }
-            switch ($cmd) {
-                'opslaan' { $running = $false; break }
-                'annuleren' {
-                    Write-StatusLine "Sessie geannuleerd."
-                    Remove-Item -Path $sessionFolder -Recurse -Force -ErrorAction SilentlyContinue
-                    exit 0
-                }
-                'status' {
-                    Write-StatusLine ("Status => Roger host gezien: {0} | SignalR host gezien: {1} | LoginStatus gezien: {2} | presenceHub/negotiate gezien: {3} | WebSocket gezien: {4} | Events opgeslagen: {5}" -f @(
-                        $(if($state.RogerHostGezien){'Ja'}else{'Nee'}),
-                        $(if($state.SignalRHostGezien){'Ja'}else{'Nee'}),
-                        $(if($state.LoginStatusGezien){'Ja'}else{'Nee'}),
-                        $(if($state.PresenceNegotiateGezien){'Ja'}else{'Nee'}),
-                        $(if($state.WebSocketGezien){'Ja'}else{'Nee'}),
-                        $state.TotaalEvents
-                    ))
-                }
-                default {
-                    if ($cmd) { Write-StatusLine "Onbekend commando. Gebruik: opslaan | annuleren | status" }
-                }
+        switch ($k.KeyChar) {
+            '1' {
+                Write-StatusLine "Actie: Opslaan"
+                $running = $false
             }
-        } elseif ($k.Key -eq 'Backspace') {
-            if ($commandBuffer.Length -gt 0) { $commandBuffer = $commandBuffer.Substring(0, $commandBuffer.Length-1) }
-        } elseif (-not [char]::IsControl($k.KeyChar)) {
-            $commandBuffer += $k.KeyChar
+            '2' {
+                Write-StatusLine "Actie: Status"
+                Write-StatusBlock -state $state
+            }
+            '3' {
+                Write-StatusLine "Actie: Annuleren"
+                Remove-Item -Path $sessionFolder -Recurse -Force -ErrorAction SilentlyContinue
+                exit 0
+            }
+            default {
+                # ignore any other keypress
+            }
         }
     }
 
@@ -162,11 +215,9 @@ while ($running) {
     if ($raw -ne "") {
         $msg = $raw | ConvertFrom-Json
         if ($msg.method -eq 'Target.attachedToTarget') {
-            $sid = $msg.params.sessionId
             $ti = $msg.params.targetInfo
             $targets[$ti.targetId] = $ti
             Send-CdpCommand $socket $id 'Network.enable' @{ } ; $id++
-            Send-CdpCommand $socket $id 'Runtime.enable' @{ sessionId = $sid } ; $id++
         }
 
         if ($msg.method -like 'Network.*') {
@@ -198,27 +249,18 @@ while ($running) {
                 if ($hasPresence) { $state.PresenceNegotiateGezien = $true }
             }
 
-            if ($msg.method -eq 'Network.webSocketCreated' -or $msg.method -eq 'Network.webSocketWillSendHandshakeRequest' -or $msg.method -eq 'Network.webSocketHandshakeResponseReceived') {
+            if ($msg.method -in @('Network.webSocketCreated','Network.webSocketWillSendHandshakeRequest','Network.webSocketHandshakeResponseReceived')) {
                 $state.WebSocketGezien = $true
-                if ($msg.method -eq 'Network.webSocketHandshakeResponseReceived') {
-                    if ([int]$msg.params.response.status -eq 101) {
-                        if (-not $state.EersteMatchTimestamp) { $state.EersteMatchTimestamp = (Get-Date).ToString('o') }
-                        $state.LaatsteMatchTimestamp = (Get-Date).ToString('o')
-                    }
+                if ($msg.method -eq 'Network.webSocketHandshakeResponseReceived' -and [int]$msg.params.response.status -eq 101) {
+                    if (-not $state.EersteMatchTimestamp) { $state.EersteMatchTimestamp = (Get-Date).ToString('o') }
+                    $state.LaatsteMatchTimestamp = (Get-Date).ToString('o')
                 }
             }
         }
     }
 
     if ((Get-Date) -ge $nextStatus) {
-        Write-StatusLine "Recorder draait..."
-        Write-StatusLine "Roger host gezien: $(if($state.RogerHostGezien){'Ja'}else{'Nee'})"
-        Write-StatusLine "SignalR host gezien: $(if($state.SignalRHostGezien){'Ja'}else{'Nee'})"
-        Write-StatusLine "LoginStatus gezien: $(if($state.LoginStatusGezien){'Ja'}else{'Nee'})"
-        Write-StatusLine "presenceHub/negotiate gezien: $(if($state.PresenceNegotiateGezien){'Ja'}else{'Nee'})"
-        Write-StatusLine "WebSocket gezien: $(if($state.WebSocketGezien){'Ja'}else{'Nee'})"
-        Write-StatusLine "Events opgeslagen: $($state.TotaalEvents)"
-        Write-StatusLine "Typ commando: opslaan | annuleren | status"
+        Write-StatusBlock -state $state
         $nextStatus = (Get-Date).AddSeconds([int]$config.statusIntervalSeconds)
     }
 
