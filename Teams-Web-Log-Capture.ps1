@@ -91,7 +91,7 @@ function Send-CdpCommand($Socket, [int]$Id, [string]$Method, [hashtable]$Params 
 
 function Read-CdpMessage($Socket, [int]$TimeoutMs = 200) {
     $buffer = New-Object byte[] 32768
-    $all = New-Object System.Collections.Generic.List[byte]
+    $stream = New-Object System.IO.MemoryStream
     $cts = [Threading.CancellationTokenSource]::new($TimeoutMs)
     try {
         do {
@@ -101,16 +101,33 @@ function Read-CdpMessage($Socket, [int]$TimeoutMs = 200) {
                 return $null
             }
             if ($result.Count -gt 0) {
-                $all.AddRange($buffer[0..($result.Count-1)])
+                $stream.Write($buffer, 0, $result.Count)
             }
         } while (-not $result.EndOfMessage)
     }
     catch [System.OperationCanceledException] {
         return ""
     }
+    catch {
+        Write-StatusLine "Waarschuwing: fout bij lezen van CDP-bericht: $($_.Exception.Message)"
+        return ""
+    }
+    finally {
+        $cts.Dispose()
+    }
 
-    if ($all.Count -eq 0) { return "" }
-    return [System.Text.Encoding]::UTF8.GetString($all.ToArray())
+    if ($stream.Length -eq 0) { return "" }
+
+    try {
+        return [System.Text.Encoding]::UTF8.GetString($stream.ToArray())
+    }
+    catch {
+        Write-StatusLine "Waarschuwing: fout bij decoderen van CDP-bericht: $($_.Exception.Message)"
+        return ""
+    }
+    finally {
+        $stream.Dispose()
+    }
 }
 
 function Add-CaptureEvent($obj) {
@@ -148,7 +165,7 @@ $edgeArgs = @(
     "--new-window",
     $config.teamsStartUrl
 )
-Start-Process -FilePath $edgePath -ArgumentList $edgeArgs | Out-Null
+$null = Start-Process -FilePath $edgePath -ArgumentList $edgeArgs
 Write-StatusLine "Microsoft Teams wordt geopend"
 Write-StatusLine "Recorder draait vanaf browserstart"
 Write-StatusLine "Log in bij Teams en open Roger365"
@@ -160,7 +177,7 @@ $browserWs = $versionInfo.webSocketDebuggerUrl
 if (-not $browserWs) { throw "Kon browser WebSocket endpoint niet vinden." }
 
 $socket = [System.Net.WebSockets.ClientWebSocket]::new()
-$socket.ConnectAsync([Uri]$browserWs, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+[void]$socket.ConnectAsync([Uri]$browserWs, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
 
 $id = 1
 Send-CdpCommand $socket $id 'Target.setDiscoverTargets' @{ discover = $true }; $id++
