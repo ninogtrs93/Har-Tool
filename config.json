@@ -1,0 +1,19 @@
+{
+  "productName": "Teams Web Log Capture",
+  "teamsStartUrl": "https://teams.microsoft.com/",
+  "rogerHosts": [
+    "adminnfr.roger365.io"
+  ],
+  "signalRHosts": [
+    "r365nfr-eu-core-signalr.service.signalr.net"
+  ],
+  "pathMarkers": [
+    "/Account/LoginStatus",
+    "/presenceHub/negotiate"
+  ],
+  "outputRoot": "%USERPROFILE%\\Downloads\\Teams-Web-Log-Capture",
+  "statusIntervalSeconds": 7,
+  "pollIntervalMs": 200,
+  "sessionTimeoutMinutes": 180,
+  "edgeRemoteDebugPort": 9222
+}
