@@ -1,0 +1,11 @@
+{
+  "productName": "Teams Web HAR Capture",
+  "teamsUrl": "https://teams.microsoft.com/",
+  "outputRoot": "%USERPROFILE%\\Downloads\\Teams-Web-HAR-Capture",
+  "localhostPortStart": 17777,
+  "exportTimeoutSeconds": 90,
+  "statusIntervalSeconds": 7,
+  "markerHosts": ["adminnfr.roger365.io", "r365nfr-eu-core-signalr.service.signalr.net"],
+  "markerPaths": ["/Account/LoginStatus", "/presenceHub/negotiate", "presenceHub", "signalr"],
+  "keepTempProfile": false
+}
