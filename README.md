@@ -1,48 +1,39 @@
-# Teams Web Log Capture (no-build Windows tool)
+# Teams Web HAR Capture (no-build)
 
-Dit project is direct bruikbaar als map op Windows, zonder build, zonder npm, zonder installer.
-
-## Bestanden
-
-- `START-HIER.cmd` – dubbelklik startbestand
-- `Teams-Web-Log-Capture.ps1` – hoofdscript
-- `config.json` – instellingen
-- `README.md` – uitleg
+Dit is een directe Windows-tool zonder buildstap.
 
 ## Gebruik
+1. Dubbelklik `START-HIER.cmd`.
+2. Edge + DevTools openen automatisch.
+3. Log in bij Teams en open Roger365.
+4. Reproduceer het probleem.
+5. Druk `1` om HAR op te slaan.
 
-1. Kopieer de map naar een Windows-machine met Microsoft Edge.
-2. Dubbelklik op `START-HIER.cmd`.
-3. Edge opent met Teams Web.
-4. Log in en open Roger365.
-5. De recorder draait direct vanaf browserstart.
-6. Typ in het consolevenster:
-   - `status` voor actuele status
-   - `opslaan` om capturebestanden op te slaan
-   - `annuleren` om te stoppen zonder output
+## Menu
+- `1` HAR opslaan
+- `2` Status
+- `3` Annuleren
+
+## Bestanden
+- `START-HIER.cmd`
+- `Teams-Web-HAR-Capture.ps1`
+- `config.json`
+- `extension/manifest.json`
+- `extension/devtools.html`
+- `extension/devtools.js`
+- `extension/panel.html`
+- `extension/panel.js`
 
 ## Output
-
-Bij `opslaan` schrijft de tool naar:
-
-`%USERPROFILE%\Downloads\Teams-Web-Log-Capture\session-<timestamp>\`
-
-Met minimaal:
-
-- `capture.ndjson`
+`%USERPROFILE%\Downloads\Teams-Web-HAR-Capture\session-<timestamp>\`
+- `TeamsWeb-HAR-*.har`
 - `summary.json`
 - `samenvatting.txt`
-- `targets.json`
-- `hosts-by-target.json`
+- `README-VOOR-SUPPORT.txt`
+- `extension-status.log` (optioneel)
 
-## Wat deze v1 doet
+## Hoe dit een echte DevTools HAR maakt
+De extensie draait als DevTools-extension en gebruikt `chrome.devtools.network.getHAR()` bij export. Daardoor komt de HAR uit de DevTools Network log.
 
-- Start Edge met tijdelijk profiel en CDP remote debugging
-- Start passieve capture direct vanaf browserstart
-- Observeert netwerk-events, requests en websocket-signalen
-- Markeert de vereiste Roger/SignalR hosts en pad-markers
-- Blijft actief tot de gebruiker handmatig opslaat/annuleert of timeout bereikt is
-
-## Config aanpassen
-
-Pas `config.json` aan voor hosts, markers, polling/status interval, outputlocatie en timeout.
+## Privacy
+Let op: HAR kan gevoelige data bevatten (tokens/cookies/headers/URL's). Deel alleen met vertrouwde support.

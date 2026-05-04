@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Teams Web HAR Capture DevTools",
+  "version": "1.0.0",
+  "description": "Exports DevTools HAR to localhost listener.",
+  "devtools_page": "devtools.html",
+  "permissions": []
+}

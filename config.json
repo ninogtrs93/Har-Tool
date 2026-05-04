@@ -1,19 +1,11 @@
 {
-  "productName": "Teams Web Log Capture",
-  "teamsStartUrl": "https://teams.microsoft.com/",
-  "rogerHosts": [
-    "adminnfr.roger365.io"
-  ],
-  "signalRHosts": [
-    "r365nfr-eu-core-signalr.service.signalr.net"
-  ],
-  "pathMarkers": [
-    "/Account/LoginStatus",
-    "/presenceHub/negotiate"
-  ],
-  "outputRoot": "%USERPROFILE%\\Downloads\\Teams-Web-Log-Capture",
+  "productName": "Teams Web HAR Capture",
+  "teamsUrl": "https://teams.microsoft.com/",
+  "outputRoot": "%USERPROFILE%\\Downloads\\Teams-Web-HAR-Capture",
+  "localhostPortStart": 17777,
+  "exportTimeoutSeconds": 90,
   "statusIntervalSeconds": 7,
-  "pollIntervalMs": 200,
-  "sessionTimeoutMinutes": 180,
-  "edgeRemoteDebugPort": 9222
+  "markerHosts": ["adminnfr.roger365.io", "r365nfr-eu-core-signalr.service.signalr.net"],
+  "markerPaths": ["/Account/LoginStatus", "/presenceHub/negotiate", "presenceHub", "signalr"],
+  "keepTempProfile": false
 }
